@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from ev_motor_sim.ui.param_panel import ParamPanel
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -47,8 +49,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _build_left_panel(self):
         container = QWidget()
-        container.setMinimumWidth(200)
-        container.setMaximumWidth(280)
+        container.setMinimumWidth(220)
+        container.setMaximumWidth(320)
         layout = QVBoxLayout(container)
         layout.setSpacing(8)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -64,16 +66,10 @@ class MainWindow(QMainWindow):
             topo_layout.addWidget(rb)
         layout.addWidget(topo_box)
 
-        # Parameter groups (collapsed placeholders; T-202 will populate)
-        for group_name in ("Geometry", "Electrical", "Material", "Limits"):
-            gb = QGroupBox(group_name)
-            gb.setCheckable(True)
-            gb.setChecked(False)
-            gb_layout = QVBoxLayout(gb)
-            gb_layout.addWidget(QLabel(f"({group_name} params — T-202)"))
-            layout.addWidget(gb)
-
-        layout.addStretch(1)
+        # Parameter panel (T-202): collapsible groups with sliders + spinboxes.
+        self.param_panel = ParamPanel()
+        self.param_panel.paramsChanged.connect(self._on_params_changed)
+        layout.addWidget(self.param_panel, stretch=1)
 
         # Preset buttons
         self.btn_load_preset = QPushButton("Load Preset")
@@ -82,6 +78,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.btn_save_preset)
 
         return container
+
+    def _on_params_changed(self, params) -> None:
+        self.status_label.setText("Params updated — ready to simulate")
 
     # ------------------------------------------------------------------
     # Right panel: 2×2 plot grid + summary row + action buttons
