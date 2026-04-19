@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 
 from ev_motor_sim.models import Topology
 from ev_motor_sim.models.pmsm import compute_curve
+from ev_motor_sim.ui.efficiency_map_widget import EfficiencyMapWidget
 from ev_motor_sim.ui.key_numbers_widget import KeyNumbersWidget
 from ev_motor_sim.ui.param_panel import ParamPanel
 
@@ -123,10 +124,20 @@ class MainWindow(QMainWindow):
             peak_P_kW = float(result["power_W"].max()) / 1000.0
             peak_eta_pct = float(result["efficiency"].max()) * 100.0
             self.key_numbers.update_values(peak_T, base_rpm, max_rpm, peak_P_kW, peak_eta_pct)
+            self._eff_map_widget.update_params(
+                params if isinstance(params, dict) else params.model_dump()
+            )
         except Exception:
             pass
         elapsed_ms = (time.perf_counter() - t0) * 1000
         self.status_label.setText(f"Refresh: {elapsed_ms:.1f} ms")
+
+    def _on_compute_eff_map(self) -> None:
+        t0 = time.perf_counter()
+        self.status_label.setText("Computing efficiency map…")
+        self._eff_map_widget.compute_and_draw()
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        self.status_label.setText(f"Eff map: {elapsed_ms:.0f} ms")
 
     # ------------------------------------------------------------------
     # Right panel: 2×2 plot grid + summary row + action buttons
@@ -143,7 +154,8 @@ class MainWindow(QMainWindow):
         right_col = QVBoxLayout()
 
         left_col.addWidget(self._build_torque_speed_plot())
-        left_col.addWidget(self._placeholder_frame("Efficiency Map\n(matplotlib — T-304)"))
+        self._eff_map_widget = EfficiencyMapWidget()
+        left_col.addWidget(self._eff_map_widget)
         right_col.addWidget(self._build_power_speed_plot())
         right_col.addWidget(self._placeholder_frame("Loss Breakdown\n(bar chart — T-305)"))
 
@@ -158,6 +170,7 @@ class MainWindow(QMainWindow):
         # Action buttons row
         btn_row = QHBoxLayout()
         self.btn_compute_eff = QPushButton("Compute Eff Map")
+        self.btn_compute_eff.clicked.connect(self._on_compute_eff_map)
         self.btn_export_csv = QPushButton("Export CSV")
         btn_row.addStretch(1)
         btn_row.addWidget(self.btn_compute_eff)
