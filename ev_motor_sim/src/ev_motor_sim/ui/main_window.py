@@ -1,3 +1,4 @@
+import csv
 import time
 from pathlib import Path
 
@@ -27,6 +28,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EV Motor Simulator")
         self.setMinimumSize(1100, 700)
         self._current_preset_path: Path | None = None
+        self._last_result: dict | None = None
+        self._last_result_axial: dict | None = None
         self._build_menu()
         self._build_central()
         self._build_status_bar()
@@ -217,6 +220,8 @@ class MainWindow(QMainWindow):
             if is_compare:
                 r_result = compute_curve_pmsm(params)
                 a_result = compute_curve_afpm(params)
+                self._last_result = r_result
+                self._last_result_axial = a_result
                 self._torque_curve.setData(r_result["speed_rpm"], r_result["torque_Nm"])
                 self._torque_curve_axial.setData(a_result["speed_rpm"], a_result["torque_Nm"])
                 self._torque_curve_axial.setVisible(True)
@@ -230,6 +235,8 @@ class MainWindow(QMainWindow):
                 result = r_result
             else:
                 result = compute_curve_pmsm(params)
+                self._last_result = result
+                self._last_result_axial = None
                 self._torque_curve.setData(result["speed_rpm"], result["torque_Nm"])
                 self._torque_curve_axial.setVisible(False)
                 self._base_speed_line.setValue(result["base_speed_rpm"])
@@ -264,6 +271,67 @@ class MainWindow(QMainWindow):
         self._eff_map_widget.compute_and_draw()
         elapsed_ms = (time.perf_counter() - t0) * 1000
         self.status_label.setText(f"Eff map: {elapsed_ms:.0f} ms")
+
+    def _on_export_csv(self) -> None:
+        if self._last_result is None:
+            QMessageBox.warning(self, "No Data", "No curve data to export. Adjust parameters first.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export CSV", "motor_curves.csv", "CSV files (*.csv);;All files (*)"
+        )
+        if not path:
+            return
+        if not path.endswith(".csv"):
+            path += ".csv"
+
+        try:
+            r = self._last_result
+            a = self._last_result_axial
+            with open(path, "w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                if a is None:
+                    writer.writerow([
+                        "speed (rpm)", "torque (N·m)", "power (W)",
+                        "efficiency (%)", "total_loss (W)",
+                    ])
+                    for i in range(len(r["speed_rpm"])):
+                        writer.writerow([
+                            f"{r['speed_rpm'][i]:.4f}",
+                            f"{r['torque_Nm'][i]:.4f}",
+                            f"{r['power_W'][i]:.4f}",
+                            f"{r['efficiency'][i] * 100.0:.4f}",
+                            f"{r['losses_W'][i]:.4f}",
+                        ])
+                else:
+                    writer.writerow([
+                        "radial_speed (rpm)", "radial_torque (N·m)", "radial_power (W)",
+                        "radial_efficiency (%)", "radial_total_loss (W)",
+                        "axial_speed (rpm)", "axial_torque (N·m)", "axial_power (W)",
+                        "axial_efficiency (%)", "axial_total_loss (W)",
+                    ])
+                    n = max(len(r["speed_rpm"]), len(a["speed_rpm"]))
+                    r_n = len(r["speed_rpm"])
+                    a_n = len(a["speed_rpm"])
+                    for i in range(n):
+                        r_row = (
+                            [f"{r['speed_rpm'][i]:.4f}", f"{r['torque_Nm'][i]:.4f}",
+                             f"{r['power_W'][i]:.4f}", f"{r['efficiency'][i] * 100.0:.4f}",
+                             f"{r['losses_W'][i]:.4f}"]
+                            if i < r_n else ["", "", "", "", ""]
+                        )
+                        a_row = (
+                            [f"{a['speed_rpm'][i]:.4f}", f"{a['torque_Nm'][i]:.4f}",
+                             f"{a['power_W'][i]:.4f}", f"{a['efficiency'][i] * 100.0:.4f}",
+                             f"{a['losses_W'][i]:.4f}"]
+                            if i < a_n else ["", "", "", "", ""]
+                        )
+                        writer.writerow(r_row + a_row)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Error", str(exc))
+            return
+
+        self.status_label.setText(f"Exported: {Path(path).name}")
 
     # ------------------------------------------------------------------
     # Right panel: 2×2 plot grid + summary row + action buttons
@@ -306,6 +374,7 @@ class MainWindow(QMainWindow):
         self.btn_compute_eff = QPushButton("Compute Eff Map")
         self.btn_compute_eff.clicked.connect(self._on_compute_eff_map)
         self.btn_export_csv = QPushButton("Export CSV")
+        self.btn_export_csv.clicked.connect(self._on_export_csv)
         btn_row.addStretch(1)
         btn_row.addWidget(self.btn_compute_eff)
         btn_row.addWidget(self.btn_export_csv)

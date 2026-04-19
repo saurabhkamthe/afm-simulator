@@ -87,6 +87,7 @@ def compute_curve(
     torque_arr = np.zeros(n)
     power_arr = np.zeros(n)
     eff_arr = np.zeros(n)
+    losses_arr = np.zeros(n)
 
     # MTPA currents at full load (below base speed)
     i_d_base, i_q_base = mtpa_currents(lambda_pm, L_d, L_q, I_max)
@@ -114,6 +115,7 @@ def compute_curve(
             eff_arr[k] = min(P_shaft / P_in, 1.0)
         torque_arr[k] = T_shaft
         power_arr[k] = P_shaft
+        losses_arr[k] = P_loss
 
     return {
         "speed_rpm": omega_m_arr * (60.0 / (2.0 * pi)),
@@ -121,6 +123,7 @@ def compute_curve(
         "torque_Nm": torque_arr,
         "power_W": power_arr,
         "efficiency": eff_arr,
+        "losses_W": losses_arr,
         "base_speed_rpm": float(omega_m_base * (60.0 / (2.0 * pi))),
         "peak_torque_Nm": float(T_em_base),
     }
