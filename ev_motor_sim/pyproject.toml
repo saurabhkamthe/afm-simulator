@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "ev_motor_sim"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pyqt6==6.7.*",
+    "pyqtgraph",
+    "matplotlib",
+    "numpy",
+    "scipy",
+    "pydantic>=2",
+]
+
+[project.scripts]
+ev-motor-sim = "ev_motor_sim.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers -v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "validation: marks reference-preset validation tests",
+]
+
+[tool.coverage.run]
+source = ["src/ev_motor_sim"]
+omit = ["src/ev_motor_sim/ui/*", "src/ev_motor_sim/main.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

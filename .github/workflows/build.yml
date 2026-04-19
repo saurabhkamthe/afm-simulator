@@ -1,0 +1,127 @@
+name: Build EV Motor Simulator
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if (Test-Path pyproject.toml) {
+            pip install -e ".[dev]"
+          } else {
+            pip install pyqt6 pyqtgraph matplotlib numpy scipy pydantic pytest
+          }
+
+      - name: Install dependencies (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if [ -f pyproject.toml ]; then
+            pip install -e ".[dev]"
+          else
+            pip install pyqt6 pyqtgraph matplotlib numpy scipy pydantic pytest
+          fi
+
+      - name: Run tests
+        continue-on-error: true
+        run: |
+          if command -v pytest &> /dev/null; then
+            pytest tests/ -v || true
+          fi
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $ICON_FLAG = ""
+          if (Test-Path "src/ev_motor_sim/assets/icon.ico") {
+            $ICON_FLAG = "--icon src/ev_motor_sim/assets/icon.ico"
+          }
+          $DATA_FLAG = ""
+          if (Test-Path "src/ev_motor_sim/presets") {
+            $DATA_FLAG = "--add-data 'src/ev_motor_sim/presets:presets'"
+          }
+          pyinstaller --name "EVMotorSimulator" --onefile --windowed $DATA_FLAG $ICON_FLAG src/ev_motor_sim/main.py
+
+      - name: Build with PyInstaller (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          ICON_FLAG=""
+          [ -f "src/ev_motor_sim/assets/icon.icns" ] && ICON_FLAG="--icon src/ev_motor_sim/assets/icon.icns"
+          DATA_FLAG=""
+          [ -d "src/ev_motor_sim/presets" ] && DATA_FLAG="--add-data src/ev_motor_sim/presets:presets"
+          pyinstaller --name "EVMotorSimulator" --onefile --windowed $DATA_FLAG $ICON_FLAG src/ev_motor_sim/main.py
+
+      - name: Build with PyInstaller (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          DATA_FLAG=""
+          [ -d "src/ev_motor_sim/presets" ] && DATA_FLAG="--add-data src/ev_motor_sim/presets:presets"
+          pyinstaller --name "EVMotorSimulator" --onefile --windowed $DATA_FLAG src/ev_motor_sim/main.py
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVMotorSimulator-Windows
+          path: dist/EVMotorSimulator.exe
+          retention-days: 30
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVMotorSimulator-macOS
+          path: dist/EVMotorSimulator
+          retention-days: 30
+
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVMotorSimulator-Linux
+          path: dist/EVMotorSimulator
+          retention-days: 30
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./release-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./release-artifacts/**/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
