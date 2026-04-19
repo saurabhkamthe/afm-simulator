@@ -114,6 +114,8 @@ class MainWindow(QMainWindow):
             result = compute_curve(params)
             self._torque_curve.setData(result["speed_rpm"], result["torque_Nm"])
             self._base_speed_line.setValue(result["base_speed_rpm"])
+            self._power_curve.setData(result["speed_rpm"], result["power_W"] / 1000.0)
+            self._power_base_speed_line.setValue(result["base_speed_rpm"])
             peak_T = result["peak_torque_Nm"]
             base_rpm = result["base_speed_rpm"]
             max_rpm = float(result["speed_rpm"][-1])
@@ -145,7 +147,7 @@ class MainWindow(QMainWindow):
 
         left_col.addWidget(self._build_torque_speed_plot())
         left_col.addWidget(self._placeholder_frame("Efficiency Map\n(matplotlib — T-304)"))
-        right_col.addWidget(self._placeholder_frame("Power vs. Speed\n(pyqtgraph — T-302)"))
+        right_col.addWidget(self._build_power_speed_plot())
         right_col.addWidget(self._placeholder_frame("Loss Breakdown\n(bar chart — T-305)"))
 
         grid.addLayout(left_col)
@@ -193,6 +195,20 @@ class MainWindow(QMainWindow):
         dash_pen = pg.mkPen(color="#e05f5f", width=1, style=Qt.PenStyle.DashLine)
         self._base_speed_line = pg.InfiniteLine(angle=90, movable=False, pen=dash_pen)
         pw.addItem(self._base_speed_line)
+        return pw
+
+    def _build_power_speed_plot(self) -> pg.PlotWidget:
+        pw = pg.PlotWidget()
+        pw.setBackground("w")
+        pw.setLabel("left", "Power", units="kW")
+        pw.setLabel("bottom", "Speed", units="rpm")
+        pw.showGrid(x=True, y=True, alpha=0.3)
+        pw.setMinimumHeight(180)
+        pw.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._power_curve = pw.plot(pen=pg.mkPen(color="#2ca02c", width=2))
+        dash_pen = pg.mkPen(color="#e05f5f", width=1, style=Qt.PenStyle.DashLine)
+        self._power_base_speed_line = pg.InfiniteLine(angle=90, movable=False, pen=dash_pen)
+        pw.addItem(self._power_base_speed_line)
         return pw
 
     @staticmethod
