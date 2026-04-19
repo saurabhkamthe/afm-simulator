@@ -27,6 +27,10 @@ from ev_motor_sim.models import MotorParams, Topology, RotorSaliency
 
 _SLIDER_STEPS = 1000
 
+# Keys that belong exclusively to one topology in the Geometry group.
+_RADIAL_KEYS: frozenset[str] = frozenset({"D_ro", "L_stk"})
+_AXIAL_KEYS: frozenset[str] = frozenset({"D_o", "D_i", "g_mech", "l_pm", "mu_r"})
+
 
 class _ParamSpec(NamedTuple):
     """Describes one editable motor parameter."""
@@ -106,6 +110,9 @@ class ParamPanel(QWidget):
         self._sliders: dict[str, QSlider] = {}
         self._spinboxes: dict[str, Union[QDoubleSpinBox, QSpinBox]] = {}
         self._specs: dict[str, _ParamSpec] = {}
+        # Geometry row widgets keyed by param key, used for topology visibility.
+        self._geo_row_widgets: dict[str, QWidget] = {}
+        self._geo_form: QFormLayout | None = None
 
         # 50 ms debounce timer (BRIEF §5 P2).
         self._debounce = QTimer(self)
@@ -132,9 +139,23 @@ class ParamPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
+        # Apply initial visibility: Radial PMSM is the default.
+        self._apply_geo_visibility(Topology.RADIAL_PMSM)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_topology(self, topology: Topology | None) -> None:
+        """Update which geometry rows are visible and queue paramsChanged.
+
+        Pass a :class:`Topology` to show only that topology's geometry fields.
+        Pass ``None`` to show all fields (Compare mode).
+        """
+        if topology is not None:
+            self._topology = topology
+        self._apply_geo_visibility(topology)
+        self._debounce.start()
 
     def get_params(self) -> MotorParams:
         """Return a :class:`MotorParams` built from the current widget state."""
@@ -171,6 +192,9 @@ class ParamPanel(QWidget):
         form.setSpacing(4)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
+        if name == "Geometry":
+            self._geo_form = form
+
         contents = QWidget()
         contents.setLayout(form)
 
@@ -197,7 +221,24 @@ class ParamPanel(QWidget):
             label_text = f"{spec.label} [{spec.disp_unit}]" if spec.disp_unit else spec.label
             form.addRow(label_text, row_widget)
 
+            if name == "Geometry":
+                self._geo_row_widgets[spec.key] = row_widget
+
         return gb
+
+    def _apply_geo_visibility(self, topology: Topology | None) -> None:
+        for key, row_widget in self._geo_row_widgets.items():
+            if topology is None:
+                visible = True
+            elif topology == Topology.RADIAL_PMSM:
+                visible = key in _RADIAL_KEYS
+            else:
+                visible = key in _AXIAL_KEYS
+            row_widget.setVisible(visible)
+            if self._geo_form is not None:
+                label = self._geo_form.labelForField(row_widget)
+                if label is not None:
+                    label.setVisible(visible)
 
     def _build_row(self, spec: _ParamSpec):
         disp_min = spec.store_min * spec.disp_mult

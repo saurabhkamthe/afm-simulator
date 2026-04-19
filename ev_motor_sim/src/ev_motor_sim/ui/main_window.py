@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from ev_motor_sim.models import Topology
 from ev_motor_sim.ui.param_panel import ParamPanel
 
 
@@ -71,6 +72,17 @@ class MainWindow(QMainWindow):
         self.param_panel.paramsChanged.connect(self._on_params_changed)
         layout.addWidget(self.param_panel, stretch=1)
 
+        # Wire topology radio buttons now that param_panel exists.
+        self.radio_radial.toggled.connect(
+            lambda checked: checked and self._on_topology_changed()
+        )
+        self.radio_axial.toggled.connect(
+            lambda checked: checked and self._on_topology_changed()
+        )
+        self.radio_compare.toggled.connect(
+            lambda checked: checked and self._on_topology_changed()
+        )
+
         # Preset buttons
         self.btn_load_preset = QPushButton("Load Preset")
         self.btn_save_preset = QPushButton("Save Preset")
@@ -78,6 +90,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.btn_save_preset)
 
         return container
+
+    def _on_topology_changed(self) -> None:
+        if self.radio_radial.isChecked():
+            topo: Topology | None = Topology.RADIAL_PMSM
+            label = "Radial PMSM"
+        elif self.radio_axial.isChecked():
+            topo = Topology.AXIAL_FLUX_PM
+            label = "Axial Flux"
+        else:
+            topo = None  # Compare: show all geometry rows
+            label = "Compare"
+        self.param_panel.set_topology(topo)
+        self.status_label.setText(f"Topology: {label}")
 
     def _on_params_changed(self, params) -> None:
         self.status_label.setText("Params updated — ready to simulate")
