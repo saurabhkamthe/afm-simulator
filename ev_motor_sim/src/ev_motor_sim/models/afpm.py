@@ -12,12 +12,12 @@ from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
-from ev_motor_sim.physics.control import base_speed as _base_speed, mtpa_currents
-from ev_motor_sim.physics.dq_frame import (
-    electromagnetic_torque,
-    steady_state_voltages,
-    voltage_magnitude,
+from ev_motor_sim.physics.control import (
+    base_speed as _base_speed,
+    field_weakening,
+    mtpa_currents,
 )
+from ev_motor_sim.physics.dq_frame import electromagnetic_torque
 from ev_motor_sim.physics.losses import copper_loss, iron_loss, windage_loss
 
 _N_DEFAULT = 200
@@ -103,12 +103,7 @@ def compute_curve(
     power_arr = np.zeros(n)
     eff_arr = np.zeros(n)
 
-    saliency = L_q - L_d
-    if abs(saliency) < 1e-12:
-        i_d_base, i_q_base = 0.0, I_max
-    else:
-        i_d_base, i_q_base = mtpa_currents(lambda_pm, L_d, L_q, I_max, T_req=1e9)
-
+    i_d_base, i_q_base = mtpa_currents(lambda_pm, L_d, L_q, I_max)
     T_em_base = float(electromagnetic_torque(p_pairs, lambda_pm, L_d, L_q, i_d_base, i_q_base))
 
     for k, omega_m in enumerate(omega_m_arr):
@@ -117,19 +112,7 @@ def compute_curve(
         if omega_m <= omega_m_base * (1.0 + 1e-6):
             i_d, i_q = i_d_base, i_q_base
         else:
-            lo_id, hi_id = -I_max, min(0.0, i_d_base)
-            for _ in range(70):
-                i_d_mid = (lo_id + hi_id) * 0.5
-                i_q_mid = sqrt(max(I_max ** 2 - i_d_mid ** 2, 0.0))
-                v_d, v_q = steady_state_voltages(
-                    0.0, L_d, L_q, lambda_pm, omega_e, i_d_mid, i_q_mid
-                )
-                if float(voltage_magnitude(v_d, v_q)) > V_max:
-                    lo_id = i_d_mid
-                else:
-                    hi_id = i_d_mid
-            i_d = (lo_id + hi_id) * 0.5
-            i_q = sqrt(max(I_max ** 2 - i_d ** 2, 0.0))
+            i_d, i_q = field_weakening(lambda_pm, L_d, L_q, I_max, V_max, omega_e)
 
         T_em = float(electromagnetic_torque(p_pairs, lambda_pm, L_d, L_q, i_d, i_q))
         T_shaft = max(T_em - T_fric, 0.0)

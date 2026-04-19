@@ -9,7 +9,7 @@ from math import pi, sqrt
 import numpy as np
 import pytest
 
-from ev_motor_sim.physics.control import base_speed, mtpa_currents
+from ev_motor_sim.physics.control import base_speed, field_weakening, mtpa_currents
 from ev_motor_sim.physics.dq_frame import (
     current_magnitude,
     electromagnetic_torque,
@@ -251,6 +251,88 @@ class TestBaseSpeed:
         omega1 = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max=200.0)
         omega2 = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max=300.0)
         assert omega2 > omega1
+
+    def test_voltage_within_1pct_at_base_speed_ipmsm(self, pmsm_params):
+        """AC for T-104: |v| == V_max within 1 % at base speed (R_s=0)."""
+        p = pmsm_params  # IPMSM saliency (L_q > L_d)
+        V_max = p["V_dc"] / sqrt(3.0)
+        omega_e_base = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max)
+        i_d, i_q = mtpa_currents(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"])
+        v_d, v_q = steady_state_voltages(
+            0.0, p["L_d"], p["L_q"], p["lambda_pm"], omega_e_base, i_d, i_q
+        )
+        v_mag = float(voltage_magnitude(v_d, v_q))
+        assert abs(v_mag - V_max) / V_max < 0.01
+
+    def test_voltage_within_1pct_at_base_speed_spmsm(self, pmsm_params):
+        """AC for T-104 also holds for SPMSM (L_d == L_q)."""
+        p = pmsm_params
+        L = p["L_d"]  # force saliency to zero
+        V_max = p["V_dc"] / sqrt(3.0)
+        omega_e_base = base_speed(p["lambda_pm"], L, L, p["I_max"], V_max)
+        i_d, i_q = mtpa_currents(p["lambda_pm"], L, L, p["I_max"])
+        v_d, v_q = steady_state_voltages(
+            0.0, L, L, p["lambda_pm"], omega_e_base, i_d, i_q
+        )
+        v_mag = float(voltage_magnitude(v_d, v_q))
+        assert abs(v_mag - V_max) / V_max < 0.01
+
+
+# ---------------------------------------------------------------------------
+# control — field_weakening
+# ---------------------------------------------------------------------------
+
+class TestFieldWeakening:
+    """Region 2 solver — current-limit ∩ voltage-limit intersection (§A.4)."""
+
+    def test_returns_mtpa_below_base_speed(self, pmsm_params):
+        p = pmsm_params
+        V_max = p["V_dc"] / sqrt(3.0)
+        omega_e_base = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max)
+        i_d_fw, i_q_fw = field_weakening(
+            p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max, omega_e_base * 0.5,
+        )
+        i_d_mtpa, i_q_mtpa = mtpa_currents(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"])
+        assert i_d_fw == pytest.approx(i_d_mtpa, abs=1e-9)
+        assert i_q_fw == pytest.approx(i_q_mtpa, abs=1e-9)
+
+    def test_voltage_on_limit_above_base_speed(self, pmsm_params):
+        """Above base speed the FW point must sit on the V_max ellipse."""
+        p = pmsm_params
+        V_max = p["V_dc"] / sqrt(3.0)
+        omega_e_base = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max)
+        for ratio in (1.2, 1.6, 2.0):
+            omega_e = omega_e_base * ratio
+            i_d, i_q = field_weakening(
+                p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max, omega_e,
+            )
+            v_d, v_q = steady_state_voltages(
+                0.0, p["L_d"], p["L_q"], p["lambda_pm"], omega_e, i_d, i_q
+            )
+            v_mag = float(voltage_magnitude(v_d, v_q))
+            assert v_mag == pytest.approx(V_max, rel=1e-6)
+
+    def test_stays_on_current_limit_circle(self, pmsm_params):
+        p = pmsm_params
+        V_max = p["V_dc"] / sqrt(3.0)
+        omega_e_base = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max)
+        i_d, i_q = field_weakening(
+            p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max, omega_e_base * 1.5,
+        )
+        assert sqrt(i_d ** 2 + i_q ** 2) == pytest.approx(p["I_max"], rel=1e-6)
+        assert i_d < 0.0
+
+    def test_deeper_weakening_as_speed_increases(self, pmsm_params):
+        p = pmsm_params
+        V_max = p["V_dc"] / sqrt(3.0)
+        omega_e_base = base_speed(p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max)
+        i_d_low, _ = field_weakening(
+            p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max, omega_e_base * 1.2,
+        )
+        i_d_hi, _ = field_weakening(
+            p["lambda_pm"], p["L_d"], p["L_q"], p["I_max"], V_max, omega_e_base * 2.0,
+        )
+        assert i_d_hi < i_d_low  # more negative at higher speed
 
 
 # ---------------------------------------------------------------------------
