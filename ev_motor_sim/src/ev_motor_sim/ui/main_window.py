@@ -12,6 +12,7 @@ from ev_motor_sim.models import Topology
 from ev_motor_sim.models.pmsm import compute_curve
 from ev_motor_sim.ui.efficiency_map_widget import EfficiencyMapWidget
 from ev_motor_sim.ui.key_numbers_widget import KeyNumbersWidget
+from ev_motor_sim.ui.loss_breakdown_widget import LossBreakdownWidget
 from ev_motor_sim.ui.param_panel import ParamPanel
 
 
@@ -124,13 +125,19 @@ class MainWindow(QMainWindow):
             peak_P_kW = float(result["power_W"].max()) / 1000.0
             peak_eta_pct = float(result["efficiency"].max()) * 100.0
             self.key_numbers.update_values(peak_T, base_rpm, max_rpm, peak_P_kW, peak_eta_pct)
-            self._eff_map_widget.update_params(
-                params if isinstance(params, dict) else params.model_dump()
-            )
+            params_dict = params if isinstance(params, dict) else params.model_dump()
+            self._eff_map_widget.update_params(params_dict)
+            self._loss_bar_widget.update_params(params_dict)
         except Exception:
             pass
         elapsed_ms = (time.perf_counter() - t0) * 1000
         self.status_label.setText(f"Refresh: {elapsed_ms:.1f} ms")
+
+    def _on_torque_speed_mouse_moved(self, evt) -> None:
+        pos = evt[0]
+        if self._ts_plot.sceneBoundingRect().contains(pos):
+            mouse_point = self._ts_plot.getViewBox().mapSceneToView(pos)
+            self._loss_bar_widget.update_point(mouse_point.x())
 
     def _on_compute_eff_map(self) -> None:
         t0 = time.perf_counter()
@@ -157,7 +164,15 @@ class MainWindow(QMainWindow):
         self._eff_map_widget = EfficiencyMapWidget()
         left_col.addWidget(self._eff_map_widget)
         right_col.addWidget(self._build_power_speed_plot())
-        right_col.addWidget(self._placeholder_frame("Loss Breakdown\n(bar chart — T-305)"))
+        self._loss_bar_widget = LossBreakdownWidget()
+        right_col.addWidget(self._loss_bar_widget)
+
+        # Wire cursor on T-ω plot → loss breakdown (throttled via SignalProxy)
+        self._ts_mouse_proxy = pg.SignalProxy(
+            self._ts_plot.scene().sigMouseMoved,
+            rateLimit=30,
+            slot=self._on_torque_speed_mouse_moved,
+        )
 
         grid.addLayout(left_col)
         grid.addLayout(right_col)
@@ -203,6 +218,7 @@ class MainWindow(QMainWindow):
         dash_pen = pg.mkPen(color="#e05f5f", width=1, style=Qt.PenStyle.DashLine)
         self._base_speed_line = pg.InfiniteLine(angle=90, movable=False, pen=dash_pen)
         pw.addItem(self._base_speed_line)
+        self._ts_plot = pw
         return pw
 
     def _build_power_speed_plot(self) -> pg.PlotWidget:
