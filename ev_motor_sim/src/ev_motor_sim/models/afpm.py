@@ -1,8 +1,9 @@
 """Axial-flux PM sizing and torque-speed-efficiency curve model (T-106).
 
 Axial-flux machines share the same dq-frame physics as radial-flux PMSMs;
-the key difference is the geometry from which lambda_pm and inductances are
-derived when not specified directly (BRIEF §A.5).
+the key difference is the geometry from which ``lambda_pm`` and the
+synchronous inductances are derived when not specified directly
+(BRIEF §A.5).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from ev_motor_sim.physics.dq_frame import electromagnetic_torque
 from ev_motor_sim.physics.losses import copper_loss, iron_loss, windage_loss
 
 _N_DEFAULT = 200
+_MU_0 = 4.0e-7 * pi
 
 
 def _extract(p: Any) -> dict:
@@ -32,30 +34,56 @@ def _extract(p: Any) -> dict:
 def afpm_sizing(params: Any) -> Dict[str, float]:
     """Return core electromagnetic sizing quantities for an AFPM machine.
 
-    When ``lambda_pm``, ``L_d``, ``L_q`` are already in *params* they are
-    returned directly.  Otherwise they are estimated from the Appendix A.5
-    geometry equations (requires ``D_o``, ``D_i``, ``B_g``, ``mu_r``,
-    ``l_pm``, ``g_mech``, ``N_turns``, ``k_w``, ``p``).
+    Implements BRIEF §A.5:
+
+    ``λ_pm ≈ N · k_w · B_g · (π / (2p)) · (D_o² − D_i²) / 4``
+    ``L   ≈ μ_0 · (N · k_w)² · A_gap / (p · g_eff)``
+
+    where ``A_gap = π · (D_o² − D_i²) / 4`` (annular gap area) and
+    ``g_eff = g_mech + l_pm / μ_r``.
+
+    Explicit ``lambda_pm`` / ``L_d`` / ``L_q`` in *params* take precedence;
+    geometry-based estimates are only used when those fields are missing or
+    non-positive and the required geometry (``D_o``, ``D_i``, ``p``) is
+    present.
     """
     d = _extract(params)
+    p_pairs = int(d["p"])
 
-    lambda_pm = float(d.get("lambda_pm", 0.0))
-    L_d = float(d.get("L_d", d.get("L_q", 1e-4)))
-    L_q = float(d.get("L_q", L_d))
+    lambda_pm = float(d.get("lambda_pm", 0.0) or 0.0)
+    L_d = float(d.get("L_d", 0.0) or 0.0)
+    L_q = float(d.get("L_q", 0.0) or 0.0)
 
-    if lambda_pm <= 0.0 and "D_o" in d and "D_i" in d:
-        # Geometry-based estimate (BRIEF §A.5 simplified)
+    has_geometry = "D_o" in d and "D_i" in d
+    if has_geometry:
         D_o = float(d["D_o"])
         D_i = float(d["D_i"])
         B_g = float(d.get("B_g", 0.95))
         N_turns = int(d.get("N_turns", 10))
         k_w = float(d.get("k_w", 0.93))
-        p_pairs = int(d["p"])
-        # Mean radius, mean area per pole pair
-        R_mean = (D_o + D_i) / 4.0
-        tau_p = pi * R_mean / p_pairs  # pole pitch at mean radius
-        A_pole = tau_p * (D_o - D_i) / 2.0
-        lambda_pm = k_w * N_turns * B_g * A_pole
+        A_gap = pi * (D_o * D_o - D_i * D_i) / 4.0
+
+        if lambda_pm <= 0.0:
+            lambda_pm = N_turns * k_w * B_g * (pi / (2.0 * p_pairs)) * (
+                D_o * D_o - D_i * D_i
+            ) / 4.0
+
+        if L_d <= 0.0 or L_q <= 0.0:
+            g_mech = float(d.get("g_mech", 1.0e-3))
+            l_pm = float(d.get("l_pm", 6.0e-3))
+            mu_r = float(d.get("mu_r", 1.05))
+            g_eff = g_mech + l_pm / mu_r
+            L_geom = _MU_0 * (N_turns * k_w) ** 2 * A_gap / (p_pairs * g_eff)
+            if L_d <= 0.0:
+                L_d = L_geom
+            if L_q <= 0.0:
+                L_q = L_geom
+
+    # Fall-back defaults if neither explicit values nor geometry were given.
+    if L_d <= 0.0:
+        L_d = 1.0e-4
+    if L_q <= 0.0:
+        L_q = L_d
 
     return {"lambda_pm": lambda_pm, "L_d": L_d, "L_q": L_q}
 
@@ -72,9 +100,10 @@ def compute_curve(
     d = _extract(params)
 
     p_pairs = int(d["p"])
-    lambda_pm = float(d["lambda_pm"])
-    L_d = float(d["L_d"])
-    L_q = float(d["L_q"])
+    sizing = afpm_sizing(d)
+    lambda_pm = float(sizing["lambda_pm"])
+    L_d = float(sizing["L_d"])
+    L_q = float(sizing["L_q"])
     R_s_20 = float(d.get("R_s20") or d.get("R_s_20") or d.get("R_s", 0.03))
     T_winding = float(d.get("T_winding", 80.0))
     V_dc = float(d["V_dc"])
