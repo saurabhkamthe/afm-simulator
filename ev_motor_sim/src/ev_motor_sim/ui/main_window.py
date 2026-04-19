@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 
 from ev_motor_sim.models import Topology
 from ev_motor_sim.models.pmsm import compute_curve
+from ev_motor_sim.ui.key_numbers_widget import KeyNumbersWidget
 from ev_motor_sim.ui.param_panel import ParamPanel
 
 
@@ -121,11 +122,7 @@ class MainWindow(QMainWindow):
             max_rpm = float(result["speed_rpm"][-1])
             peak_P_kW = float(result["power_W"].max()) / 1000.0
             peak_eta_pct = float(result["efficiency"].max()) * 100.0
-            self.summary_label.setText(
-                f"Peak T  {peak_T:.0f} N·m  |  Base ω  {base_rpm:.0f} rpm  |"
-                f"  Max ω  {max_rpm:.0f} rpm  |  Peak P  {peak_P_kW:.1f} kW  |"
-                f"  Peak η  {peak_eta_pct:.1f}%"
-            )
+            self.key_numbers.update_values(peak_T, base_rpm, max_rpm, peak_P_kW, peak_eta_pct)
         except Exception:
             pass
         elapsed_ms = (time.perf_counter() - t0) * 1000
@@ -155,10 +152,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid, stretch=1)
 
         # Key-numbers summary row (T-303)
-        self.summary_label = QLabel("Peak T — | Base ω — | Max ω — | Peak P — | Peak η —")
-        self.summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.summary_label.setFrameShape(QFrame.Shape.StyledPanel)
-        layout.addWidget(self.summary_label)
+        self.key_numbers = KeyNumbersWidget()
+        layout.addWidget(self.key_numbers)
 
         # Action buttons row
         btn_row = QHBoxLayout()
