@@ -12,7 +12,8 @@ from PyQt6.QtCore import Qt
 
 from ev_motor_sim.models import Topology
 from ev_motor_sim.models.params import MotorParams
-from ev_motor_sim.models.pmsm import compute_curve
+from ev_motor_sim.models.pmsm import compute_curve as compute_curve_pmsm
+from ev_motor_sim.models.afpm import compute_curve as compute_curve_afpm
 from ev_motor_sim.presets import list_builtins, load_builtin
 from ev_motor_sim.ui.efficiency_map_widget import EfficiencyMapWidget
 from ev_motor_sim.ui.key_numbers_widget import KeyNumbersWidget
@@ -212,11 +213,31 @@ class MainWindow(QMainWindow):
     def _on_params_changed(self, params) -> None:
         t0 = time.perf_counter()
         try:
-            result = compute_curve(params)
-            self._torque_curve.setData(result["speed_rpm"], result["torque_Nm"])
-            self._base_speed_line.setValue(result["base_speed_rpm"])
-            self._power_curve.setData(result["speed_rpm"], result["power_W"] / 1000.0)
-            self._power_base_speed_line.setValue(result["base_speed_rpm"])
+            is_compare = self.radio_compare.isChecked()
+            if is_compare:
+                r_result = compute_curve_pmsm(params)
+                a_result = compute_curve_afpm(params)
+                self._torque_curve.setData(r_result["speed_rpm"], r_result["torque_Nm"])
+                self._torque_curve_axial.setData(a_result["speed_rpm"], a_result["torque_Nm"])
+                self._torque_curve_axial.setVisible(True)
+                self._base_speed_line.setValue(r_result["base_speed_rpm"])
+                self._power_curve.setData(r_result["speed_rpm"], r_result["power_W"] / 1000.0)
+                self._power_curve_axial.setData(a_result["speed_rpm"], a_result["power_W"] / 1000.0)
+                self._power_curve_axial.setVisible(True)
+                self._power_base_speed_line.setValue(r_result["base_speed_rpm"])
+                self._ts_legend.setVisible(True)
+                self._ps_legend.setVisible(True)
+                result = r_result
+            else:
+                result = compute_curve_pmsm(params)
+                self._torque_curve.setData(result["speed_rpm"], result["torque_Nm"])
+                self._torque_curve_axial.setVisible(False)
+                self._base_speed_line.setValue(result["base_speed_rpm"])
+                self._power_curve.setData(result["speed_rpm"], result["power_W"] / 1000.0)
+                self._power_curve_axial.setVisible(False)
+                self._power_base_speed_line.setValue(result["base_speed_rpm"])
+                self._ts_legend.setVisible(False)
+                self._ps_legend.setVisible(False)
             peak_T = result["peak_torque_Nm"]
             base_rpm = result["base_speed_rpm"]
             max_rpm = float(result["speed_rpm"][-1])
@@ -312,10 +333,16 @@ class MainWindow(QMainWindow):
         pw.showGrid(x=True, y=True, alpha=0.3)
         pw.setMinimumHeight(180)
         pw.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._torque_curve = pw.plot(pen=pg.mkPen(color="#1f77b4", width=2))
+        self._torque_curve = pw.plot(pen=pg.mkPen(color="#1f77b4", width=2), name="Radial PMSM")
+        self._torque_curve_axial = pw.plot(pen=pg.mkPen(color="#ff7f0e", width=2), name="Axial Flux")
+        self._torque_curve_axial.setVisible(False)
         dash_pen = pg.mkPen(color="#e05f5f", width=1, style=Qt.PenStyle.DashLine)
         self._base_speed_line = pg.InfiniteLine(angle=90, movable=False, pen=dash_pen)
         pw.addItem(self._base_speed_line)
+        self._ts_legend = pw.addLegend(offset=(10, 10))
+        self._ts_legend.addItem(self._torque_curve, "Radial PMSM")
+        self._ts_legend.addItem(self._torque_curve_axial, "Axial Flux")
+        self._ts_legend.setVisible(False)
         self._ts_plot = pw
         return pw
 
@@ -327,10 +354,16 @@ class MainWindow(QMainWindow):
         pw.showGrid(x=True, y=True, alpha=0.3)
         pw.setMinimumHeight(180)
         pw.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._power_curve = pw.plot(pen=pg.mkPen(color="#2ca02c", width=2))
+        self._power_curve = pw.plot(pen=pg.mkPen(color="#2ca02c", width=2), name="Radial PMSM")
+        self._power_curve_axial = pw.plot(pen=pg.mkPen(color="#ff7f0e", width=2), name="Axial Flux")
+        self._power_curve_axial.setVisible(False)
         dash_pen = pg.mkPen(color="#e05f5f", width=1, style=Qt.PenStyle.DashLine)
         self._power_base_speed_line = pg.InfiniteLine(angle=90, movable=False, pen=dash_pen)
         pw.addItem(self._power_base_speed_line)
+        self._ps_legend = pw.addLegend(offset=(10, 10))
+        self._ps_legend.addItem(self._power_curve, "Radial PMSM")
+        self._ps_legend.addItem(self._power_curve_axial, "Axial Flux")
+        self._ps_legend.setVisible(False)
         return pw
 
     @staticmethod
