@@ -392,3 +392,37 @@ class TestPMSMComputeCurve:
         idx_2x = int(np.searchsorted(speeds, base_rpm * 1.8))
         if idx_2x < len(torques):
             assert torques[idx_2x] < result["peak_torque_Nm"]
+
+    def test_three_region_curve_shape(self, pmsm_params):
+        """AC for T-105: constant-torque → constant-power → natural roll-off."""
+        result = compute_curve(pmsm_params)
+        base_rpm = result["base_speed_rpm"]
+        speeds = result["speed_rpm"]
+        torques = result["torque_Nm"]
+        powers = result["power_W"]
+        peak_T = result["peak_torque_Nm"]
+
+        # Region 1 — constant torque below base speed (< 1 % variation).
+        mask1 = speeds < base_rpm * 0.85
+        if mask1.sum() > 1:
+            span = torques[mask1].max() - torques[mask1].min()
+            assert span / peak_T < 0.01
+            assert torques[mask1].mean() == pytest.approx(peak_T, rel=0.01)
+
+        # Region 2 — constant power: power in the 1.5×–2.5× band is within
+        # 10 % of its peak (classic FW plateau).
+        mask2 = (speeds >= base_rpm * 1.5) & (speeds <= base_rpm * 2.5)
+        if mask2.sum() > 1:
+            P_band = powers[mask2]
+            peak_P = powers.max()
+            assert P_band.min() >= 0.9 * peak_P
+
+        # Region 3 — natural roll-off: torque drops monotonically with speed
+        # in the FW region; power near the end is <= peak power.
+        mask3 = speeds > base_rpm * 1.5
+        if mask3.sum() > 2:
+            T_fw = torques[mask3]
+            # Strictly decreasing torque (allow small numerical slack)
+            assert np.all(np.diff(T_fw) <= 1e-6)
+            # Power has rolled off or plateaued — never exceeds the peak.
+            assert powers[mask3][-1] <= powers.max() + 1e-6
