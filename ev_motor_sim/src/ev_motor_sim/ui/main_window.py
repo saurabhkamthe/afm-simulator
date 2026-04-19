@@ -1,5 +1,6 @@
 import time
 
+import pyqtgraph as pg
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
     QMenuBar, QStatusBar, QLabel, QGroupBox, QRadioButton,
@@ -110,7 +111,19 @@ class MainWindow(QMainWindow):
     def _on_params_changed(self, params) -> None:
         t0 = time.perf_counter()
         try:
-            compute_curve(params)
+            result = compute_curve(params)
+            self._torque_curve.setData(result["speed_rpm"], result["torque_Nm"])
+            self._base_speed_line.setValue(result["base_speed_rpm"])
+            peak_T = result["peak_torque_Nm"]
+            base_rpm = result["base_speed_rpm"]
+            max_rpm = float(result["speed_rpm"][-1])
+            peak_P_kW = float(result["power_W"].max()) / 1000.0
+            peak_eta_pct = float(result["efficiency"].max()) * 100.0
+            self.summary_label.setText(
+                f"Peak T  {peak_T:.0f} N·m  |  Base ω  {base_rpm:.0f} rpm  |"
+                f"  Max ω  {max_rpm:.0f} rpm  |  Peak P  {peak_P_kW:.1f} kW  |"
+                f"  Peak η  {peak_eta_pct:.1f}%"
+            )
         except Exception:
             pass
         elapsed_ms = (time.perf_counter() - t0) * 1000
@@ -130,7 +143,7 @@ class MainWindow(QMainWindow):
         left_col = QVBoxLayout()
         right_col = QVBoxLayout()
 
-        left_col.addWidget(self._placeholder_frame("Torque vs. Speed\n(pyqtgraph — T-301)"))
+        left_col.addWidget(self._build_torque_speed_plot())
         left_col.addWidget(self._placeholder_frame("Efficiency Map\n(matplotlib — T-304)"))
         right_col.addWidget(self._placeholder_frame("Power vs. Speed\n(pyqtgraph — T-302)"))
         right_col.addWidget(self._placeholder_frame("Loss Breakdown\n(bar chart — T-305)"))
@@ -140,10 +153,10 @@ class MainWindow(QMainWindow):
         layout.addLayout(grid, stretch=1)
 
         # Key-numbers summary row (T-303)
-        summary = QLabel("Peak T — | Base ω — | Max ω — | Peak P — | Peak η —")
-        summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        summary.setFrameShape(QFrame.Shape.StyledPanel)
-        layout.addWidget(summary)
+        self.summary_label = QLabel("Peak T — | Base ω — | Max ω — | Peak P — | Peak η —")
+        self.summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.summary_label.setFrameShape(QFrame.Shape.StyledPanel)
+        layout.addWidget(self.summary_label)
 
         # Action buttons row
         btn_row = QHBoxLayout()
@@ -166,8 +179,22 @@ class MainWindow(QMainWindow):
         self.setStatusBar(sb)
 
     # ------------------------------------------------------------------
-    # Helper
+    # Helpers
     # ------------------------------------------------------------------
+    def _build_torque_speed_plot(self) -> pg.PlotWidget:
+        pw = pg.PlotWidget()
+        pw.setBackground("w")
+        pw.setLabel("left", "Torque", units="N·m")
+        pw.setLabel("bottom", "Speed", units="rpm")
+        pw.showGrid(x=True, y=True, alpha=0.3)
+        pw.setMinimumHeight(180)
+        pw.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._torque_curve = pw.plot(pen=pg.mkPen(color="#1f77b4", width=2))
+        dash_pen = pg.mkPen(color="#e05f5f", width=1, style=Qt.PenStyle.DashLine)
+        self._base_speed_line = pg.InfiniteLine(angle=90, movable=False, pen=dash_pen)
+        pw.addItem(self._base_speed_line)
+        return pw
+
     @staticmethod
     def _placeholder_frame(text: str) -> QFrame:
         frame = QFrame()
