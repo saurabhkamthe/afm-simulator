@@ -1,3 +1,5 @@
+import time
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
     QMenuBar, QStatusBar, QLabel, QGroupBox, QRadioButton,
@@ -6,6 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ev_motor_sim.models import Topology
+from ev_motor_sim.models.pmsm import compute_curve
 from ev_motor_sim.ui.param_panel import ParamPanel
 
 
@@ -105,7 +108,13 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Topology: {label}")
 
     def _on_params_changed(self, params) -> None:
-        self.status_label.setText("Params updated — ready to simulate")
+        t0 = time.perf_counter()
+        try:
+            compute_curve(params)
+        except Exception:
+            pass
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        self.status_label.setText(f"Refresh: {elapsed_ms:.1f} ms")
 
     # ------------------------------------------------------------------
     # Right panel: 2×2 plot grid + summary row + action buttons
