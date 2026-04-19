@@ -1,15 +1,19 @@
 import time
+from pathlib import Path
 
 import pyqtgraph as pg
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
-    QMenuBar, QStatusBar, QLabel, QGroupBox, QRadioButton,
-    QPushButton, QScrollArea, QFrame, QSizePolicy,
+    QFileDialog, QMainWindow, QMessageBox, QWidget, QSplitter,
+    QVBoxLayout, QHBoxLayout, QMenuBar, QStatusBar, QLabel,
+    QGroupBox, QRadioButton, QPushButton, QScrollArea, QFrame, QSizePolicy,
 )
 from PyQt6.QtCore import Qt
 
 from ev_motor_sim.models import Topology
+from ev_motor_sim.models.params import MotorParams
 from ev_motor_sim.models.pmsm import compute_curve
+from ev_motor_sim.presets import list_builtins, load_builtin
 from ev_motor_sim.ui.efficiency_map_widget import EfficiencyMapWidget
 from ev_motor_sim.ui.key_numbers_widget import KeyNumbersWidget
 from ev_motor_sim.ui.loss_breakdown_widget import LossBreakdownWidget
@@ -21,6 +25,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("EV Motor Simulator")
         self.setMinimumSize(1100, 700)
+        self._current_preset_path: Path | None = None
         self._build_menu()
         self._build_central()
         self._build_status_bar()
@@ -32,7 +37,34 @@ class MainWindow(QMainWindow):
         mb = QMenuBar(self)
         mb.addMenu("&File")
         mb.addMenu("&View")
-        mb.addMenu("&Presets")
+
+        presets_menu = mb.addMenu("&Presets")
+
+        # Built-in presets
+        for display_name, filename in list_builtins():
+            action = QAction(display_name, self)
+            action.triggered.connect(
+                lambda checked=False, fn=filename: self._on_load_builtin(fn)
+            )
+            presets_menu.addAction(action)
+
+        presets_menu.addSeparator()
+
+        load_action = QAction("&Load Preset…", self)
+        load_action.setShortcut("Ctrl+O")
+        load_action.triggered.connect(self._on_load_preset)
+        presets_menu.addAction(load_action)
+
+        self._save_action = QAction("&Save Preset", self)
+        self._save_action.setShortcut("Ctrl+S")
+        self._save_action.triggered.connect(self._on_save_preset)
+        presets_menu.addAction(self._save_action)
+
+        save_as_action = QAction("Save Preset &As…", self)
+        save_as_action.setShortcut("Ctrl+Shift+S")
+        save_as_action.triggered.connect(self._on_save_preset_as)
+        presets_menu.addAction(save_as_action)
+
         mb.addMenu("&Help")
         self.setMenuBar(mb)
 
@@ -92,11 +124,77 @@ class MainWindow(QMainWindow):
 
         # Preset buttons
         self.btn_load_preset = QPushButton("Load Preset")
+        self.btn_load_preset.clicked.connect(self._on_load_preset)
         self.btn_save_preset = QPushButton("Save Preset")
+        self.btn_save_preset.clicked.connect(self._on_save_preset)
         layout.addWidget(self.btn_load_preset)
         layout.addWidget(self.btn_save_preset)
 
         return container
+
+    # ------------------------------------------------------------------
+    # Preset actions
+    # ------------------------------------------------------------------
+
+    def _apply_params(self, params: MotorParams) -> None:
+        """Load *params* into the UI without emitting paramsChanged immediately."""
+        if params.topology == Topology.RADIAL_PMSM:
+            self.radio_radial.setChecked(True)
+        elif params.topology == Topology.AXIAL_FLUX_PM:
+            self.radio_axial.setChecked(True)
+        self.param_panel.set_params(params)
+        self.param_panel.paramsChanged.emit(params)
+        self.status_label.setText(f"Loaded: {params.name}")
+
+    def _on_load_builtin(self, filename: str) -> None:
+        try:
+            params = load_builtin(filename)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
+            return
+        self._current_preset_path = None
+        self._apply_params(params)
+
+    def _on_load_preset(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Preset", "", "JSON files (*.json);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            params = MotorParams.from_file(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
+            return
+        self._current_preset_path = Path(path)
+        self._apply_params(params)
+
+    def _on_save_preset(self) -> None:
+        if self._current_preset_path is None:
+            self._on_save_preset_as()
+            return
+        try:
+            self.param_panel.get_params().to_file(self._current_preset_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", str(exc))
+            return
+        self.status_label.setText(f"Saved: {self._current_preset_path.name}")
+
+    def _on_save_preset_as(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Preset As", "", "JSON files (*.json);;All files (*)"
+        )
+        if not path:
+            return
+        if not path.endswith(".json"):
+            path += ".json"
+        self._current_preset_path = Path(path)
+        try:
+            self.param_panel.get_params().to_file(self._current_preset_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", str(exc))
+            return
+        self.status_label.setText(f"Saved: {self._current_preset_path.name}")
 
     def _on_topology_changed(self) -> None:
         if self.radio_radial.isChecked():
